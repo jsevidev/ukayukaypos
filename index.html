@@ -1,148 +1,330 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Simple POS</title>
-  <style>
-    body { font-family: system-ui, Arial, sans-serif; margin: 0; }
-    header { padding: 12px 16px; background: #111; color: #fff; }
-    .wrap { padding: 12px 16px; }
-    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-    .col { flex: 1; min-width: 200px; }
-    input, select, button, textarea { font-size: 16px; padding: 10px; width: 100%; box-sizing: border-box; }
-    button { cursor: pointer; }
-    .grid { display: grid; gap: 8px; }
-    .cart { width: 100%; border-collapse: collapse; margin-top: 8px; }
-    .cart th, .cart td { border-bottom: 1px solid #ddd; padding: 8px; text-align: left; }
-    .cart td.num, .cart th.num { text-align: right; }
-    .sticky-bar { position: sticky; bottom: 0; background: #fff; border-top: 1px solid #eee; padding: 12px 16px; }
-    .pill { padding: 6px 10px; background: #f3f4f6; border-radius: 999px; }
-    .scanbox { position: relative; background: #000; border-radius: 8px; overflow: hidden; }
-    video { width: 100%; height: auto; }
-    .overlay { position: absolute; inset: 0; box-shadow: inset 0 0 0 2px rgba(255,255,255,.5); pointer-events: none; }
-    .badge { font-size: 12px; opacity: .8; }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Simple Cashier POS (Manual Entry + Google Sheets)</title>
+<style>
+  :root { --bg:#0b0b0c; --card:#141417; --muted:#232327; --text:#f7f7f7; --sub:#c9c9cf; --accent:#B91F0B; --ok:#16a34a; --warn:#d97706; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+  header { padding: 14px 16px; background: #050406; display:flex; align-items:center; justify-content:space-between; }
+  header .title { font-weight: 700; letter-spacing:.3px; }
+  header small { color: var(--sub); }
+  main { padding: 16px; display: grid; gap: 16px; grid-template-columns: 1fr; max-width: 1100px; margin: 0 auto; }
+  @media (min-width: 900px) { main { grid-template-columns: 380px 1fr; } }
+
+  .card { background: var(--card); border-radius: 16px; padding: 14px; box-shadow: 0 2px 16px rgba(0,0,0,.25); }
+  .section-title { margin: 6px 0 10px; font-size: 14px; color: var(--sub); letter-spacing:.2px; text-transform: uppercase; }
+  .row { display:flex; gap:8px; align-items: center; flex-wrap: wrap; }
+  .col { flex:1 1 140px; }
+  label { display:block; font-size:12px; color: var(--sub); margin-bottom: 6px; }
+  input[type="text"], input[type="number"] {
+    width:100%; background:#121215; color:var(--text); border:1px solid #27272a; border-radius:12px; padding:12px;
+    font-size:16px; outline:none;
+  }
+  input[disabled] { opacity:.8; }
+
+  .keypad { display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; margin-top: 8px; }
+  .keypad button, .btn {
+    border:none; background:#1b1b20; color:var(--text); padding:14px; border-radius:12px; font-size:18px; cursor:pointer;
+    box-shadow: inset 0 -2px 0 rgba(255,255,255,.03);
+  }
+  .keypad button:active, .btn:active { transform: translateY(1px); }
+  .btn-accent { background: var(--accent); }
+  .btn-warn { background: var(--warn); }
+  .btn-ok { background: var(--ok); }
+  .btn-outline { background: transparent; border:1px solid #2f2f35; }
+  .chip-toggle { display:flex; gap:6px; }
+  .chip { padding:8px 10px; border-radius:999px; border:1px solid #2f2f35; cursor:pointer; font-size:14px; color:var(--sub); }
+  .chip.active { background:#1b1b20; color:var(--text); border-color:#3a3a40; }
+
+  table { width:100%; border-collapse: collapse; }
+  th, td { border-bottom:1px solid #24242a; padding:10px; text-align:left; }
+  th { color: var(--sub); font-weight:600; font-size:12px; text-transform: uppercase; letter-spacing:.3px; }
+  td.num { text-align:right; }
+
+  .totals { display:grid; grid-template-columns: repeat(2, 1fr); gap:8px; margin-top: 10px; }
+  .total-card { background:#101015; border:1px solid #24242a; border-radius:12px; padding:10px; }
+  .total-card .label { font-size:12px; color:var(--sub); }
+  .total-card .value { font-size:20px; font-weight:700; }
+
+  .sticky-actions { position: sticky; bottom: 0; background: linear-gradient(180deg, rgba(11,11,12,0) 0%, rgba(11,11,12,1) 30%); padding-top:8px; }
+  .actions { display:flex; gap:10px; }
+</style>
 </head>
 <body>
-  <header>
-    <div class="row">
-      <div class="col"><strong id="storeNameView">My Store</strong></div>
-      <div class="col" style="text-align:right"><span class="badge">POS Web</span></div>
-    </div>
-  </header>
 
-  <div class="wrap grid" id="app">
-
-    <!-- Config Panel -->
-    <details>
-      <summary>Settings</summary>
-      <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
-        <div><label>Store name<input id="storeName" /></label></div>
-        <div><label>Cashier name<input id="cashier" /></label></div>
-        <div><label>Currency symbol<input id="currency" value="₱" /></label></div>
-        <div><label>Tax rate (%)<input id="taxRate" type="number" step="0.01" value="0" /></label></div>
-        <div style="grid-column: 1 / -1;"><label>Google Apps Script Web App URL<input id="webhook" placeholder="https://script.google.com/macros/s/AKfycbyVOcVKgkqEfpD9j2F_UDFEdq0_ROS7zpqNR-tBFaqsHGdJ35cxz74j-0Msi3tZEpNM/exec" /></label></div>
-        <div style="grid-column: 1 / -1;"><label>Notes<textarea id="notes" rows="2" placeholder="Optional notes printed to sheet"></textarea></label></div>
-        <div><button id="saveSettings">Save settings</button></div>
-      </div>
-    </details>
-
-    <!-- Scanner & manual add -->
-    <div class="grid" style="grid-template-columns: 1fr;">
-      <div class="scanbox">
-        <video id="video" playsinline></video>
-        <div class="overlay"></div>
-      </div>
-      <div class="row">
-        <div class="col"><input id="barcodeInput" placeholder="Scan or type barcode" autocomplete="off" /></div>
-        <div class="col"><input id="nameInput" placeholder="Item name (optional)" /></div>
-        <div class="col"><input id="priceInput" type="number" step="0.01" placeholder="Unit price" /></div>
-        <div style="width:140px"><button id="addItem">Add</button></div>
-      </div>
-      <div class="row">
-        <span class="pill" id="scanStatus">Scanner: initializing…</span>
-      </div>
-    </div>
-
-    <!-- Cart table -->
-    <table class="cart" id="cartTable">
-      <thead>
-        <tr>
-          <th>Barcode</th>
-          <th>Name</th>
-          <th class="num">Qty</th>
-          <th class="num">Unit</th>
-          <th class="num">Discount</th>
-          <th class="num">Line Total</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody id="cartBody"></tbody>
-    </table>
-
-    <!-- Totals + Checkout -->
-    <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
-      <div><label>Cash received<input id="cash" type="number" step="0.01" /></label></div>
-      <div><label>Subtotal<input id="subtotal" disabled /></label></div>
-      <div><label>Tax<input id="tax" disabled /></label></div>
-      <div><label>Grand Total<input id="grand" disabled /></label></div>
-      <div><label>Change<input id="change" disabled /></label></div>
-      <div style="grid-column: 1 / -1; display:flex; gap:8px;">
-        <button id="clearCart">Clear Cart</button>
-        <button id="submitSale">Submit to Google Sheet</button>
-      </div>
-    </div>
+<header>
+  <div>
+    <div class="title">Web Cashier POS</div>
+    <small>Manual input • Line-item logging to Google Sheets</small>
   </div>
+  <div><small id="storeNameView">My Store</small></div>
+</header>
 
-  <!-- ZXing fallback (optional CDN) -->
-  <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.20.0"></script>
-  <script>
-    const $ = (id) => document.getElementById(id);
-    const state = {
-      items: [],
-      settings: {
-        storeName: localStorage.getItem('storeName') || 'My Store',
-        cashier: localStorage.getItem('cashier') || '',
-        currency: localStorage.getItem('currency') || '₱',
-        taxRate: parseFloat(localStorage.getItem('taxRate') || '0'),
-        webhook: localStorage.getItem('webhook') || '',
-        notes: localStorage.getItem('notes') || ''
-      }
+<main>
+  <!-- Left: Item entry -->
+  <section class="card">
+    <div class="section-title">New Item</div>
+
+    <div class="row">
+      <div class="col">
+        <label>Product name (optional)</label>
+        <input id="nameInput" type="text" placeholder="e.g., Bottled Water">
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="col">
+        <label>Active field</label>
+        <div class="chip-toggle">
+          <span class="chip active" data-field="price" id="chipPrice">Price</span>
+          <span class="chip" data-field="qty" id="chipQty">Qty</span>
+        </div>
+      </div>
+      <div class="col">
+        <label>Price</label>
+        <input id="priceInput" type="text" inputmode="decimal" placeholder="0.00" value="0.00" readonly>
+      </div>
+      <div class="col" style="max-width:140px;">
+        <label>Qty</label>
+        <input id="qtyInput" type="text" inputmode="numeric" placeholder="1" value="1" readonly>
+      </div>
+    </div>
+
+    <div class="keypad" id="keypad">
+      <!-- 1-9 -->
+      <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
+      <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
+      <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
+      <!-- 0 . backspace -->
+      <button data-k="00">00</button><button data-k="0">0</button><button data-k=".">.</button>
+      <button class="btn-warn" data-k="←">⌫</button>
+      <button class="btn-outline" data-k="C">Clear</button>
+      <button class="btn-accent" id="addItemBtn">Add Item</button>
+    </div>
+  </section>
+
+  <!-- Right: Cart -->
+  <section class="card">
+    <div class="section-title">Cart</div>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th class="num">Price</th>
+            <th class="num">Qty</th>
+            <th class="num">Line Total</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="cartBody"></tbody>
+      </table>
+    </div>
+
+    <div class="totals">
+      <div class="total-card">
+        <div class="label">Subtotal</div>
+        <div class="value" id="subtotalView">₱0.00</div>
+      </div>
+      <div class="total-card">
+        <div class="label">Grand Total</div>
+        <div class="value" id="grandView">₱0.00</div>
+      </div>
+    </div>
+
+    <div class="sticky-actions">
+      <div class="actions">
+        <button class="btn btn-outline" id="clearBtn">Clear Cart</button>
+        <button class="btn btn-ok" id="checkoutBtn">Checkout & Save</button>
+      </div>
+      <small style="color:var(--sub);display:block;margin-top:6px;">Saves each line item with a single Transaction ID.</small>
+    </div>
+  </section>
+</main>
+
+<script>
+  // === CONFIG ===
+  const GOOGLE_APPS_SCRIPT_URL =
+    "https://script.google.com/macros/s/AKfycbyVOcVKgkqEfpD9j2F_UDFEdq0_ROS7zpqNR-tBFaqsHGdJ35cxz74j-0Msi3tZEpNM/exec";
+
+  const CURRENCY = "₱"; // change if needed
+  const storeName = localStorage.getItem('storeName') || "My Store";
+  document.getElementById('storeNameView').textContent = storeName;
+
+  // === STATE ===
+  const state = {
+    activeField: 'price', // 'price' | 'qty'
+    cart: []
+  };
+
+  // === HELPERS ===
+  const $ = (id) => document.getElementById(id);
+  function money(n){ return CURRENCY + (Number(n)||0).toFixed(2); }
+  function sanitizeNumeric(str, isQty=false){
+    // Keep only digits and (optionally) a single dot for price
+    str = String(str||'');
+    if (isQty) {
+      str = str.replace(/[^\d]/g,'');
+      if (str === '') str = '0';
+      return String(parseInt(str,10)||0);
+    } else {
+      // price
+      str = str.replace(/[^0-9.]/g,'');
+      const parts = str.split('.');
+      if (parts.length > 2) str = parts[0] + '.' + parts.slice(1).join('');
+      // Limit to 2 decimals visually
+      const [a,b] = str.split('.');
+      return b !== undefined ? a + '.' + b.slice(0,2) : a;
+    }
+  }
+  function appendKey(fieldId, key, isQty=false){
+    const el = $(fieldId);
+    let val = el.value;
+    if (key === 'C') { el.value = isQty ? '0' : '0.00'; return; }
+    if (key === '←') { el.value = val.length>0 ? val.slice(0,-1) : (isQty?'0':'0.00'); return; }
+
+    if (isQty) {
+      if (val === '0') val = '';
+      val += key;
+      el.value = sanitizeNumeric(val, true);
+      if (el.value === '') el.value = '0';
+    } else {
+      // price
+      if (val === '0.00' || val === '0') val = '';
+      // prevent multiple dots
+      if (key === '.' && val.includes('.')) return;
+      val += key;
+      val = sanitizeNumeric(val, false);
+      // ensure at least something
+      if (val === '' || val === '.') val = '0';
+      el.value = val;
+    }
+  }
+
+  function setActiveField(which){
+    state.activeField = which;
+    document.querySelectorAll('.chip').forEach(ch => ch.classList.remove('active'));
+    if (which === 'price') $('chipPrice').classList.add('active'); else $('chipQty').classList.add('active');
+  }
+
+  function addItem() {
+    const name = $('nameInput').value.trim() || `Item ${state.cart.length + 1}`;
+    const price = parseFloat(sanitizeNumeric($('priceInput').value||'0', false)) || 0;
+    const qty = parseInt(sanitizeNumeric($('qtyInput').value||'1', true), 10) || 1;
+
+    if (price <= 0) { alert('Enter a price greater than 0.'); return; }
+    if (qty <= 0) { alert('Quantity must be at least 1.'); return; }
+
+    state.cart.push({ name, price, qty, lineTotal: price * qty });
+    $('nameInput').value = '';
+    $('priceInput').value = '0.00';
+    $('qtyInput').value = '1';
+    renderCart();
+  }
+
+  function removeItem(idx){ state.cart.splice(idx,1); renderCart(); }
+
+  function renderCart(){
+    const tb = $('cartBody');
+    tb.innerHTML = '';
+    let subtotal = 0;
+
+    state.cart.forEach((it, idx) => {
+      const tr = document.createElement('tr');
+      const line = (it.price * it.qty);
+      subtotal += line;
+      tr.innerHTML = `
+        <td>${it.name}</td>
+        <td class="num">${money(it.price)}</td>
+        <td class="num">${it.qty}</td>
+        <td class="num">${money(line)}</td>
+        <td><button class="btn btn-outline" data-rm="${idx}">✕</button></td>
+      `;
+      tb.appendChild(tr);
+    });
+
+    $('subtotalView').textContent = money(subtotal);
+    $('grandView').textContent = money(subtotal);
+
+    tb.querySelectorAll('button[data-rm]').forEach(b => {
+      b.addEventListener('click', e => removeItem(parseInt(e.target.dataset.rm, 10)));
+    });
+  }
+
+  function computeTotals(){
+    const subtotal = state.cart.reduce((s, it) => s + (it.price * it.qty), 0);
+    return { subtotal, tax: 0, grandTotal: subtotal };
+  }
+
+  async function checkout(){
+    if (!state.cart.length) { alert('Cart is empty.'); return; }
+    if (!GOOGLE_APPS_SCRIPT_URL) { alert('Missing Google Apps Script URL.'); return; }
+
+    const orderId = 'TXN-' + Date.now();
+    const totals = computeTotals();
+
+    // Build payload compatible with the robust Apps Script we shared earlier (line-item rows)
+    const payload = {
+      orderId,
+      storeName,
+      cashier: '',       // optional: put cashier name here if you want to track
+      device: navigator.userAgent,
+      notes: '',
+      items: state.cart.map(it => ({
+        barcode: '',                   // no barcode in manual mode
+        name: it.name,
+        qty: it.qty,
+        unitPrice: it.price,
+        lineDiscount: 0,
+        lineTotal: it.price * it.qty
+      })),
+      totals,
+      timestamp: new Date().toISOString()
     };
 
-    function saveSettings() {
-      state.settings.storeName = $('storeName').value.trim() || 'My Store';
-      state.settings.cashier = $('cashier').value.trim();
-      state.settings.currency = $('currency').value || '₱';
-      state.settings.taxRate = parseFloat($('taxRate').value || '0') || 0;
-      state.settings.webhook = $('webhook').value.trim();
-      state.settings.notes = $('notes').value.trim();
-      for (const k in state.settings) localStorage.setItem(k, state.settings[k]);
-      render();
-      alert('Settings saved.');
+    try {
+      const res = await fetch(GOOGLE_APPS_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.text(); // some Apps Scripts return text, others JSON
+      // Try to parse JSON if available (optional)
+      let ok = true;
+      try { const j = JSON.parse(data); if (j.ok === false) ok = false; } catch(e){/* ignore */ }
+
+      if (!res.ok || !ok) throw new Error('Request failed: ' + (data || res.status));
+      alert('Saved! Transaction ID: ' + orderId);
+      state.cart = [];
+      renderCart();
+    } catch (err) {
+      console.error(err);
+      alert('Failed to save to Google Sheets: ' + err.message);
     }
+  }
 
-    function money(n){ return state.settings.currency + (Number(n)||0).toFixed(2); }
+  // === WIRE UI ===
+  document.querySelectorAll('.chip-toggle .chip').forEach(ch => {
+    ch.addEventListener('click', () => setActiveField(ch.dataset.field));
+  });
 
-    function addItem(barcode, name, unitPrice, qty=1, discount=0) {
-      unitPrice = Number(unitPrice)||0; qty = Number(qty)||1; discount = Number(discount)||0;
-      const lineTotal = Math.max(0, qty * unitPrice - discount);
-      state.items.push({ barcode, name, qty, unitPrice, lineDiscount: discount, lineTotal });
-      render();
-    }
+  $('addItemBtn').addEventListener('click', addItem);
+  $('clearBtn').addEventListener('click', () => { if (confirm('Clear all items?')) { state.cart = []; renderCart(); } });
+  $('checkoutBtn').addEventListener('click', checkout);
 
-    function updateItem(idx, patch) {
-      const it = state.items[idx];
-      Object.assign(it, patch);
-      it.qty = Math.max(1, Number(it.qty)||1);
-      it.unitPrice = Math.max(0, Number(it.unitPrice)||0);
-      it.lineDiscount = Math.max(0, Number(it.lineDiscount)||0);
-      it.lineTotal = Math.max(0, it.qty * it.unitPrice - it.lineDiscount);
-      render();
-    }
+  // Keypad handler
+  $('keypad').addEventListener('click', (e) => {
+    const k = e.target?.dataset?.k;
+    if (!k) return;
+    if (state.activeField === 'price') appendKey('priceInput', k, false);
+    else appendKey('qtyInput', k, true);
+  });
 
-    function removeItem(idx) { state.items.splice(idx,1); render(); }
-
-    function computeTotals() {
-      const subtotal = state.it
+  // Initialize display
+  renderCart();
+</script>
+</body>
+</html>
